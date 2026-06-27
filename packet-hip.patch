@@ -1,5 +1,5 @@
---- a/epan/dissectors/packet-hip.c	2026-06-27 11:44:56
-+++ b/epan/dissectors/packet-hip.c	2026-06-27 12:09:10
+--- a/epan/dissectors/packet-hip.c	2026-06-27 16:55:12
++++ b/epan/dissectors/packet-hip.c	2026-06-27 16:54:14
 @@ -39,7 +39,10 @@
  
  #define HI_ALG_DSA 3
@@ -11,6 +11,15 @@
  /* HIP packet types */
  typedef enum {
          HIP_I1=1,
+@@ -55,7 +58,7 @@
+ /* HIP TLV parameters listed in order of RFCs */
+ 
+ /* RFC 5201 */
+-#define PARAM_R1_COUNTER                128
++#define PARAM_R1_COUNTER                129
+ #define PARAM_PUZZLE                    257
+ #define PARAM_SOLUTION                  321
+ #define PARAM_SEQ                       385
 @@ -100,6 +103,8 @@
  /* HIPv2 draft-ietf-hip-rfc5201-bis-08 see section 5.2 */
  #define PARAM_HIP_CIPHER                579
@@ -59,7 +68,7 @@
          { 0, NULL }
  };
  
-@@ -281,6 +297,11 @@
+@@ -281,14 +297,32 @@
          { 0, NULL }
  };
  
@@ -71,17 +80,18 @@
  static const value_string hit_suite_vals[] = {
          { 0x00, "Reserved" },
          { 0x01, "RSA,DSA/SHA-256" },
-@@ -289,6 +310,19 @@
-         { 0, NULL }
- };
- 
+         { 0x02, "ECDSA/SHA384" },
+         { 0x03, "ECDSA_LOW/SHA-1" },
++        { 0, NULL }
++};
++
 +static const value_string ecdsa_curve[] = {
 +        { 0x00, "Reserved" },
 +        { 0x01, "NIST P-256" },
 +        { 0x02, "NIST P-384" },
-+        { 0, NULL }
-+};
-+
+         { 0, NULL }
+ };
+ 
 +static const value_string ecdsa_low_curve[] = {
 +        { 0x00, "Reserved" },
 +        { 0x01, "SECP160R1" },
@@ -130,10 +140,11 @@
          uint32_t reserved, hi_hdr;
          uint8_t transport_proto;
          uint8_t locator_type;
-@@ -622,6 +665,30 @@
+@@ -621,7 +664,31 @@
+                 /* R1 generation counter */
                  newoffset += 4;
                  proto_tree_add_item(t, hf_hip_tlv_r1count, tvb, newoffset, 8, ENC_NA);
-                 break;
++                break;
 +        case PARAM_HIP_DH_GROUP_LIST:
 +                while (tlv_len > 0) {
 +                        /* DH group # 1, 2, ...,  n
@@ -145,7 +156,7 @@
 +                        tlv_len -= 1;
 +                        newoffset += 1;
 +                }
-+                break;
+                 break;
 +        case PARAM_HIP_TRANSPORT_FORMAT_LIST:
 +                while (tlv_len > 0) {
 +                        /* Transport id # 1, 2, ...,  n
