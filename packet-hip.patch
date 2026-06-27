@@ -1,5 +1,5 @@
 --- a/epan/dissectors/packet-hip.c	2026-06-27 11:44:56
-+++ b/epan/dissectors/packet-hip.c	2026-06-27 11:48:15
++++ b/epan/dissectors/packet-hip.c	2026-06-27 12:09:10
 @@ -39,7 +39,10 @@
  
  #define HI_ALG_DSA 3
@@ -506,7 +506,7 @@
                      FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
  
 +                { &hf_hip_tlv_trasport_format_id,
-+                  { "Group ID", "hip.tlv.transport_format_id",
++                  { "Transport format ID", "hip.tlv.transport_format_id",
 +                    FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 +
                  { &hf_hip_tlv_dh_pv_length,
