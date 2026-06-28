@@ -1,17 +1,18 @@
---- a/epan/dissectors/packet-hip.c	2026-06-27 16:55:12
-+++ b/epan/dissectors/packet-hip.c	2026-06-27 16:54:14
-@@ -39,7 +39,10 @@
+diff --git a/epan/dissectors/packet-hip.c b/epan/dissectors/packet-hip.c
+index 2dc3e0f..de5809a 100644
+--- a/epan/dissectors/packet-hip.c
++++ b/epan/dissectors/packet-hip.c
+@@ -39,6 +39,9 @@ static dissector_handle_t hip_udp_handle;
  
  #define HI_ALG_DSA 3
  #define HI_ALG_RSA 5
 +#define HI_ALG_ECDSA 7
 +#define HI_ALG_ECDSA_LOW 9
- 
 +
+ 
  /* HIP packet types */
  typedef enum {
-         HIP_I1=1,
-@@ -55,7 +58,7 @@
+@@ -55,7 +58,7 @@ typedef enum {
  /* HIP TLV parameters listed in order of RFCs */
  
  /* RFC 5201 */
@@ -20,7 +21,7 @@
  #define PARAM_PUZZLE                    257
  #define PARAM_SOLUTION                  321
  #define PARAM_SEQ                       385
-@@ -100,6 +103,8 @@
+@@ -100,6 +103,8 @@ typedef enum {
  /* HIPv2 draft-ietf-hip-rfc5201-bis-08 see section 5.2 */
  #define PARAM_HIP_CIPHER                579
  #define PARAM_HIT_SUITE_LIST            715
@@ -29,7 +30,7 @@
  /* Bit masks */
  #define PARAM_CRITICAL_BIT              0x0001
  /* See RFC 5201 section 5.1 */
-@@ -162,6 +167,8 @@
+@@ -162,18 +167,27 @@ static const value_string hip_param_vals[] = {
          { PARAM_REG_FROM, "REG_FROM" },
          { PARAM_HIP_CIPHER, "HIP_CIPHER"},
          { PARAM_HIT_SUITE_LIST, "HIT_SUITE_LIST"},
@@ -38,18 +39,32 @@
          { 0, NULL }
  };
  
-@@ -174,6 +181,10 @@
+-/* RFC 5201 section 5.2.6. */
++/* RFC 7401 section 5.2.7 (HIPv2). Values 1, 2, 5 and 6 are DEPRECATED in
++ * HIPv2 but were defined in RFC 5201 (HIPv1); the original v1 meaning is kept
++ * in parentheses for reference. */
+ static const value_string dh_group_id_vals[] = {
+-        { 0x0, "Reserved" },
+-        { 0x01, "384-bit group" },
+-        { 0x02, "OAKLEY well-known group 1" },
++        { 0x0,  "Reserved" },
++        { 0x01, "DEPRECATED (v1: 384-bit group)" },
++        { 0x02, "DEPRECATED (v1: OAKLEY well-known group 1)" },
+         { 0x03, "1536-bit MODP group" },
          { 0x04, "3072-bit MODP group" },
-         { 0x05, "6144-bit MODP group" },
-         { 0x06, "8192-bit MODP group" },
-+        { 0x07, "ECDHNIST 256 bits" },
-+        { 0x08, "ECDHNIST 384 bits" },
-+        { 0x09, "ECDHNIST 521 bits" },
-+        { 0x0a, "ECDH LOW" },
+-        { 0x05, "6144-bit MODP group" },
+-        { 0x06, "8192-bit MODP group" },
++        { 0x05, "DEPRECATED (v1: 6144-bit MODP group)" },
++        { 0x06, "DEPRECATED (v1: 8192-bit MODP group)" },
++        { 0x07, "NIST P-256" },
++        { 0x08, "NIST P-384" },
++        { 0x09, "NIST P-521" },
++        { 0x0a, "SECP160R1" },
++        { 0x0b, "2048-bit MODP group" },
          { 0, NULL }
  };
  
-@@ -186,6 +197,15 @@
+@@ -186,6 +200,15 @@ static const value_string transform_id_vals[] = {
          { 0x04, "BLOWFISH-CBC with HMAC-SHA1" },
          { 0x05, "NULL with HMAC-SHA1" },
          { 0x06, "NULL with HMAC-MD5" },
@@ -65,7 +80,7 @@
          { 0, NULL }
  };
  
-@@ -200,6 +214,8 @@
+@@ -200,6 +223,8 @@ static const value_string sig_alg_vals[] = {
          { 0x0, "Reserved" },
          { HI_ALG_DSA, "DSA" },
          { HI_ALG_RSA, "RSA" },
@@ -74,7 +89,50 @@
          { 0, NULL }
  };
  
-@@ -281,14 +297,32 @@
+@@ -241,23 +266,26 @@ static const value_string hi_hdr_alg_vals[] = {
+         { 0, NULL }
+ };
+ 
+-/* RFC 5201 */
++/* RFC 7401 section 5.2.19 (HIPv2). Values 18/19 (ESP) are from RFC 5202/7402
++ * and retained for completeness. */
+ static const value_string notification_vals[] = {
+-        { 1,  "Unsupported critical parameter type" },
+-        { 7,  "Invalid syntax" },
+-        { 14, "No Diffie-Hellman proposal chosen" },
+-        { 15, "Invalid Diffie-Hellman chosen" },
+-        { 16, "No HIP proposal chosen" },
+-        { 17, "Invalid HIP transform chosen" },
+-        { 18, "No ESP proposal chosen" },
+-        { 19, "Invalid ESP transform chosen" },
+-        { 24, "Authentication failed" },
+-        { 26, "Checksum failed" },
+-        { 28, "HMAC failed" },
+-        { 32, "Encryption failed" },
+-        { 40, "Invalid HIT" },
+-        { 42, "Blocked by policy" },
+-        { 44, "Server busy please retry" },
++        { 1,     "Unsupported critical parameter type" },
++        { 7,     "Invalid syntax" },
++        { 14,    "No Diffie-Hellman proposal chosen" },
++        { 15,    "Invalid Diffie-Hellman chosen" },
++        { 16,    "No HIP proposal chosen" },
++        { 17,    "Invalid HIP cipher chosen" },
++        { 18,    "No ESP proposal chosen" },
++        { 19,    "Invalid ESP transform chosen" },
++        { 20,    "Unsupported HIT suite" },
++        { 24,    "Authentication failed" },
++        { 26,    "Checksum failed" },
++        { 28,    "HIP MAC failed" },
++        { 32,    "Encryption failed" },
++        { 40,    "Invalid HIT" },
++        { 42,    "Blocked by policy" },
++        { 44,    "Responder busy please retry" },
++        { 16384, "I2 acknowledgement" },
+         { 0, NULL }
+ };
+ 
+@@ -281,6 +309,11 @@ static const value_string cipher_vals[] = {
          { 0, NULL }
  };
  
@@ -86,18 +144,17 @@
  static const value_string hit_suite_vals[] = {
          { 0x00, "Reserved" },
          { 0x01, "RSA,DSA/SHA-256" },
-         { 0x02, "ECDSA/SHA384" },
-         { 0x03, "ECDSA_LOW/SHA-1" },
-+        { 0, NULL }
-+};
-+
+@@ -289,6 +322,19 @@ static const value_string hit_suite_vals[] = {
+         { 0, NULL }
+ };
+ 
 +static const value_string ecdsa_curve[] = {
 +        { 0x00, "Reserved" },
 +        { 0x01, "NIST P-256" },
 +        { 0x02, "NIST P-384" },
-         { 0, NULL }
- };
- 
++        { 0, NULL }
++};
++
 +static const value_string ecdsa_low_curve[] = {
 +        { 0x00, "Reserved" },
 +        { 0x01, "SECP160R1" },
@@ -107,7 +164,7 @@
  /* functions */
  static int dissect_hip_tlv(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_item *ti, int type, int tlv_len);
  
-@@ -346,6 +380,12 @@
+@@ -346,6 +392,12 @@ static int hf_hip_tlv_host_id_y;
  static int hf_hip_tlv_host_id_e_len;
  static int hf_hip_tlv_host_id_e;
  static int hf_hip_tlv_host_id_n;
@@ -120,7 +177,7 @@
  static int hf_hip_tlv_notification_res;
  static int hf_hip_tlv_notification_type;
  static int hf_hip_tlv_notification_data;
-@@ -405,6 +445,8 @@
+@@ -405,6 +457,8 @@ static int ett_hip_tlv_data;
  static int ett_hip_tlv_host_id_hdr;
  static int ett_hip_locator_data;
  
@@ -129,7 +186,7 @@
  static expert_field ei_hip_tlv_host_id_len;
  /* static expert_field ei_hip_tlv_host_id_e_len; */
  static expert_field ei_hip_tlv_host_id_hdr_alg;
-@@ -457,6 +499,7 @@
+@@ -457,6 +511,7 @@ dissect_hip_common(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, bool udp
      hiph_version = (hiph_res_ver & HIP_VERSION_MASK) >> 4;
      hiph_reserved = hiph_res_ver & HIP_RESERVED_MASK;
      hiph_shim6_fixed_bit_s = hiph_res_ver & HIP_SHIM6_FIXED_BIT_S_MASK;
@@ -137,7 +194,7 @@
      newoffset++;
      checksum_h = tvb_get_ntohs(tvb, newoffset);
      newoffset += 2;
-@@ -591,7 +634,7 @@
+@@ -591,7 +646,7 @@ dissect_hip_tlv(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_item *ti, i
          proto_tree *t=NULL;
          proto_item *ti_tlv, *ti_loc, *hi_len_item, *e_len_item, *arg_item;
          uint8_t n, algorithm, reg_type;
@@ -146,11 +203,10 @@
          uint32_t reserved, hi_hdr;
          uint8_t transport_proto;
          uint8_t locator_type;
-@@ -621,7 +664,31 @@
-                 /* R1 generation counter */
+@@ -622,6 +677,30 @@ dissect_hip_tlv(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_item *ti, i
                  newoffset += 4;
                  proto_tree_add_item(t, hf_hip_tlv_r1count, tvb, newoffset, 8, ENC_NA);
-+                break;
+                 break;
 +        case PARAM_HIP_DH_GROUP_LIST:
 +                while (tlv_len > 0) {
 +                        /* DH group # 1, 2, ...,  n
@@ -162,7 +218,7 @@
 +                        tlv_len -= 1;
 +                        newoffset += 1;
 +                }
-                 break;
++                break;
 +        case PARAM_HIP_TRANSPORT_FORMAT_LIST:
 +                while (tlv_len > 0) {
 +                        /* Transport id # 1, 2, ...,  n
@@ -178,7 +234,7 @@
          case PARAM_LOCATOR:
                  /* RFC 5206 section 4. and  RFC 5770 section 5.7. for type 2 locators
                   */
-@@ -886,126 +953,223 @@
+@@ -886,125 +965,219 @@ dissect_hip_tlv(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_item *ti, i
                  }
                  break;
          case PARAM_HOST_ID:
@@ -202,7 +258,7 @@
 -                hi_hdr = tvb_get_ntohl(tvb, newoffset);
 -                ti_tlv = proto_tree_add_item(t, hf_hip_tlv_host_id_hdr,
 -                                             tvb, newoffset, 4, ENC_BIG_ENDIAN);
- 
+-
 -                ti_tlv = proto_item_add_subtree(ti_tlv, ett_hip_tlv_host_id_hdr);
 -                /* HDR Flags*/
 -                proto_tree_add_uint(ti_tlv, hf_hip_tlv_host_id_hdr_flags, tvb,
@@ -216,28 +272,7 @@
 -                algorithm = tvb_get_uint8(tvb, newoffset);
 -                arg_item = proto_tree_add_uint(ti_tlv, hf_hip_tlv_host_id_hdr_alg, tvb,
 -                                    newoffset, 1, hi_hdr);
-+                if (hip_version == 1) {
-+                  hi_len = tvb_get_ntohs(tvb, newoffset);
-+                  hi_len_item = proto_tree_add_item(t, hf_hip_tlv_host_id_len, tvb, newoffset, 2, ENC_BIG_ENDIAN);
-+                  newoffset += 2;
-+                  di_len = tvb_get_ntohs(tvb, newoffset);
-+                  di_type = (di_len >> 12) & 0x000F;        /* get 4 bits for DI type */
-+                  di_len = di_len & 0x0FFF;                /* 12 bits for DI length */
-+                  /* DI type */
-+                  proto_tree_add_item(t, hf_hip_tlv_host_di_type, tvb, newoffset, 1, ENC_BIG_ENDIAN);
-+                  /* DI len */
-+                  proto_tree_add_item(t, hf_hip_tlv_host_di_len, tvb, newoffset, 2, ENC_BIG_ENDIAN);
-+                  newoffset += 2;
-+                  /* hi_hdr - first 4 bytes are 0200ff03 (KEY RR in RFC 2535)
-+                  *   flags     2  octets
-+                  *   protocol  1  octet
-+                  *   algorithm 1  octet (DSA or RSA)
-+                  *   <public key>
-+                  */
-+                  hi_hdr = tvb_get_ntohl(tvb, newoffset);
-+                  ti_tlv = proto_tree_add_item(t, hf_hip_tlv_host_id_hdr,
-+                                              tvb, newoffset, 4, ENC_BIG_ENDIAN);
- 
+-
 -                switch (algorithm) {
 -                case HI_ALG_DSA:
 -                        /* DSA KEY RR RFC 2536
@@ -298,6 +333,52 @@
 -                                             e_len, ENC_NA);
 -                        newoffset += e_len;
 -                        hi_len -= e_len;
+-
+-                        if (hi_len > 512) {
+-                                expert_add_info(pinfo, hi_len_item, &ei_hip_tlv_host_id_len);
+-                                break;
+-                        }
+ 
+-                        /* RSA public modulus n */
+-                        proto_tree_add_item(t, hf_hip_tlv_host_id_n, tvb, newoffset,
+-                                             hi_len, ENC_NA);
+-                        break;
+-                default:
+-                        expert_add_info(pinfo, arg_item, &ei_hip_tlv_host_id_hdr_alg);
+-
+-                        break;
+-                }
+-                /* FQDN */
+-                if (di_type == 0)
+-                        break;
+-                if (di_type == 1) {
+-                        /* RFC 1035 */
+-                        proto_tree_add_item(t, hf_hip_fqdn, tvb, offset+16+hi_len, di_len, ENC_ASCII);
+-                } else if (di_type == 2) {
+-                        /* RFC 4282 */
+-                        proto_tree_add_item(t, hf_hip_nai, tvb, offset+16+hi_len, di_len, ENC_ASCII);
++                if (hip_version == 1) {
++                  hi_len = tvb_get_ntohs(tvb, newoffset);
++                  hi_len_item = proto_tree_add_item(t, hf_hip_tlv_host_id_len, tvb, newoffset, 2, ENC_BIG_ENDIAN);
++                  newoffset += 2;
++                  di_len = tvb_get_ntohs(tvb, newoffset);
++                  di_type = (di_len >> 12) & 0x000F;        /* get 4 bits for DI type */
++                  di_len = di_len & 0x0FFF;                /* 12 bits for DI length */
++                  /* DI type */
++                  proto_tree_add_item(t, hf_hip_tlv_host_di_type, tvb, newoffset, 1, ENC_BIG_ENDIAN);
++                  /* DI len */
++                  proto_tree_add_item(t, hf_hip_tlv_host_di_len, tvb, newoffset, 2, ENC_BIG_ENDIAN);
++                  newoffset += 2;
++                  /* hi_hdr - first 4 bytes are 0200ff03 (KEY RR in RFC 2535)
++                  *   flags     2  octets
++                  *   protocol  1  octet
++                  *   algorithm 1  octet (DSA or RSA)
++                  *   <public key>
++                  */
++                  hi_hdr = tvb_get_ntohl(tvb, newoffset);
++                  ti_tlv = proto_tree_add_item(t, hf_hip_tlv_host_id_hdr,
++                                              tvb, newoffset, 4, ENC_BIG_ENDIAN);
++
 +                  ti_tlv = proto_item_add_subtree(ti_tlv, ett_hip_tlv_host_id_hdr);
 +                  /* HDR Flags*/
 +                  proto_tree_add_uint(ti_tlv, hf_hip_tlv_host_id_hdr_flags, tvb,
@@ -311,18 +392,7 @@
 +                  algorithm = tvb_get_uint8(tvb, newoffset);
 +                  arg_item = proto_tree_add_uint(ti_tlv, hf_hip_tlv_host_id_hdr_alg, tvb,
 +                                      newoffset, 1, hi_hdr);
- 
--                        if (hi_len > 512) {
--                                expert_add_info(pinfo, hi_len_item, &ei_hip_tlv_host_id_len);
--                                break;
--                        }
--
--                        /* RSA public modulus n */
--                        proto_tree_add_item(t, hf_hip_tlv_host_id_n, tvb, newoffset,
--                                             hi_len, ENC_NA);
--                        break;
--                default:
--                        expert_add_info(pinfo, arg_item, &ei_hip_tlv_host_id_hdr_alg);
++
 +                  switch (algorithm) {
 +                  case HI_ALG_DSA:
 +                          /* DSA KEY RR RFC 2536
@@ -383,19 +453,7 @@
 +                                              e_len, ENC_NA);
 +                          newoffset += e_len;
 +                          hi_len -= e_len;
- 
--                        break;
--                }
--                /* FQDN */
--                if (di_type == 0)
--                        break;
--                if (di_type == 1) {
--                        /* RFC 1035 */
--                        proto_tree_add_item(t, hf_hip_fqdn, tvb, offset+16+hi_len, di_len, ENC_ASCII);
--                } else if (di_type == 2) {
--                        /* RFC 4282 */
--                        proto_tree_add_item(t, hf_hip_nai, tvb, offset+16+hi_len, di_len, ENC_ASCII);
--                }
++
 +                          if (hi_len > 512) {
 +                                  expert_add_info(pinfo, hi_len_item, &ei_hip_tlv_host_id_len);
 +                                  break;
@@ -427,7 +485,7 @@
 +                  di_len = tvb_get_ntohs(tvb, newoffset);
 +                  di_type = (di_len >> 12) & 0x000F;        /* get 4 bits for DI type */
 +                  di_len = di_len & 0x0FFF;                /* 12 bits for DI length */
-+                  static int exp_length = 1;
++                  uint16_t hi_len_orig = hi_len;          /* full HI length, used for the DI (FQDN/NAI) offset */
 +                  /* DI type */
 +                  proto_tree_add_item(t, hf_hip_tlv_host_di_type, tvb, newoffset, 1, ENC_BIG_ENDIAN);
 +                  /* DI len */
@@ -456,7 +514,6 @@
 +                                  e_len = tvb_get_ntohs(tvb, newoffset);
 +                                  newoffset += 2;
 +                                  hi_len -= 2;
-+                                  exp_length += 2;
 +                          }
 +                          if (e_len > 512) { /* per, RFC 3110 < 4096 bits */
 +                                  expert_add_info(pinfo, e_len_item, &ei_hip_tlv_host_id_len);
@@ -466,7 +523,7 @@
 +                          proto_tree_add_item(t, hf_hip_tlv_host_id_e, tvb, newoffset,
 +                                              e_len, ENC_NA);
 +                          newoffset += e_len;
-+                          //hi_len -= e_len;
++                          hi_len -= e_len; /* what remains is the modulus n */
 +
 +                          if (hi_len > 512) {
 +                                  expert_add_info(pinfo, hi_len_item, &ei_hip_tlv_host_id_len);
@@ -476,8 +533,6 @@
 +                          /* RSA public modulus n */
 +                          proto_tree_add_item(t, hf_hip_tlv_host_id_n, tvb, newoffset,
 +                                              hi_len, ENC_NA);
-+
-+                          hi_len += exp_length;
 +                          break;
 +                  case HI_ALG_ECDSA:
 +                          curve_id = tvb_get_ntohs(tvb, newoffset);
@@ -509,27 +564,72 @@
 +                          break;
 +                  if (di_type == 1) {
 +                          /* RFC 1035 */
-+                          proto_tree_add_item(t, hf_hip_fqdn, tvb, offset+10+hi_len, di_len, ENC_ASCII);
++                          proto_tree_add_item(t, hf_hip_fqdn, tvb, offset+10+hi_len_orig, di_len, ENC_ASCII);
 +                  } else if (di_type == 2) {
 +                          /* RFC 4282 */
-+                          proto_tree_add_item(t, hf_hip_nai, tvb, offset+10+hi_len, di_len, ENC_ASCII);
++                          proto_tree_add_item(t, hf_hip_nai, tvb, offset+10+hi_len_orig, di_len, ENC_ASCII);
 +                  }
-+                }          
+                 }
                  break;
          case PARAM_CERT: /* CERT */
-                 /* Cert Group */
-@@ -1282,6 +1446,10 @@
+@@ -1087,15 +1260,27 @@ dissect_hip_tlv(tvbuff_t *tvb, packet_info *pinfo, int offset, proto_item *ti, i
+                 break;
+         case PARAM_HIP_SIGNATURE:
+         case PARAM_HIP_SIGNATURE_2:
+-                /* Signature algorithm */
+-                n = tvb_get_uint8(tvb, offset+4);
+-                proto_tree_add_uint_format(t, hf_hip_tlv_sig_alg, tvb, newoffset, 1,
+-                                           n, "%u (%s)", n,
+-                                           val_to_str_const(n, sig_alg_vals, "Unknown"));
+-                newoffset++;
+-                /* Signature */
+-                proto_tree_add_item(t, hf_hip_tlv_sig, tvb, newoffset, tlv_len-1,
+-                                    ENC_NA);
++                /* Signature algorithm: 8 bits in HIPv1, 16 bits in HIPv2
++                 * (RFC 7401 Sections 5.2.14 and 10) */
++                if (hip_version == 2) {
++                        uint16_t sig_alg = tvb_get_ntohs(tvb, newoffset);
++                        proto_tree_add_uint_format(t, hf_hip_tlv_sig_alg, tvb, newoffset, 2,
++                                                   sig_alg, "%u (%s)", sig_alg,
++                                                   val_to_str_const(sig_alg, sig_alg_vals, "Unknown"));
++                        newoffset += 2;
++                        /* Signature */
++                        proto_tree_add_item(t, hf_hip_tlv_sig, tvb, newoffset, tlv_len-2,
++                                            ENC_NA);
++                } else {
++                        n = tvb_get_uint8(tvb, newoffset);
++                        proto_tree_add_uint_format(t, hf_hip_tlv_sig_alg, tvb, newoffset, 1,
++                                                   n, "%u (%s)", n,
++                                                   val_to_str_const(n, sig_alg_vals, "Unknown"));
++                        newoffset++;
++                        /* Signature */
++                        proto_tree_add_item(t, hf_hip_tlv_sig, tvb, newoffset, tlv_len-1,
++                                            ENC_NA);
++                }
+                 break;
+         case PARAM_FROM:
+                 /* Address */
+@@ -1282,6 +1467,10 @@ proto_register_hip(void)
                    { "Group ID", "hip.tlv.dh_group_id",
                      FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
  
 +                { &hf_hip_tlv_trasport_format_id,
 +                  { "Transport format ID", "hip.tlv.transport_format_id",
-+                    FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
++                    FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
 +
                  { &hf_hip_tlv_dh_pv_length,
                    { "Public Value Length", "hip.tlv.dh_pv_length",
                      FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
-@@ -1561,6 +1729,20 @@
+@@ -1411,7 +1600,7 @@ proto_register_hip(void)
+ 
+                 { &hf_hip_tlv_sig_alg,
+                   { "Signature Algorithm", "hip.tlv.sig_alg",
+-                    FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }},
++                    FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL }},
+ 
+                 { &hf_hip_tlv_sig,
+                   { "Signature", "hip.tlv.sig",
+@@ -1561,6 +1750,20 @@ proto_register_hip(void)
                    { "NAI", "hip.nai",
                      FT_STRING, BASE_NONE, NULL, 0x0, NULL, HFILL }},
  
